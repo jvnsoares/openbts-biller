@@ -115,7 +115,7 @@ bool has_credit(string imsi) {
 	strcpy(out, "}");
 
 	strcpy(fullurl, URL.c_str());
-	strcpy(fullurl, "/check_balance");
+	strcpy(fullurl, "/check_data_balance");
 
 	headers = curl_slist_append(headers, "Accept: application/json");
 	headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -189,7 +189,7 @@ int to_celcom_biller(unsigned char *packet, int len) {
 						imsi = gmm->mImsi.hexstr();
 						//if the user does not have credit delet his gmm
 						// is it a better thing to do ?
-						MGINFO("IMSI: %d",imsi  );
+						MGINFO("IMSI: %s",imsi.c_str()  );
 						if(!has_credit(imsi)){
 							cliGmmDelete(gmm);
 							return 1;
@@ -202,12 +202,12 @@ int to_celcom_biller(unsigned char *packet, int len) {
 	}
 
 //formata o request
-	strcpy(output, "{\"signal\":\"-\", \"type_\":\"decrease\", \"value\": \"");
+	strcpy(output, "{\"signal\":\"-\", \"type_\":\"decrease\",\"balance\": \"data\", \"value\": \"");
 	strcat(output, bits.c_str());
 	strcat(output, "\", \"userId\":");
 	strcat(output, imsi.c_str());
 	strcat(output, "}");
-	MGINFO("request: %d",output  );
+	MGINFO("request: %s",output  );
 	//set the request url
 	strcpy(fullurl, URL.c_str());
 	strcpy(fullurl, "/api/balance");
