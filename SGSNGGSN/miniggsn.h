@@ -106,7 +106,7 @@ extern time_t gGgsnInitTime;
 
 
 
-int to_celcom_biller(unsigned char *packet, int len);
+int to_celcom_biller(unsigned char *, int, int);
 
 };	// namespace
 #endif

@@ -50,6 +50,12 @@ using namespace Utils;
 #include <netinet/ip.h>
 #endif
 
+#include <curlpp/cURLpp.hpp>
+#include <curlpp/Easy.hpp>
+#include <curlpp/Options.hpp>
+
+#include "json/json.h"
+
 const string URL = "http://127.0.0.1:5000";
 
 namespace SGSN {
@@ -65,84 +71,44 @@ static Mutex sSgsnListMutex; // One lock sufficient for all lists maintained by 
 #define SSTR( x ) static_cast< std::ostringstream & >( \
         ( std::ostringstream() << std::dec << x ) ).str()
 
-//CELCOMBiller
-//struct to save the return of the requests
-struct mstring {
-	char *ptr;
-	size_t len;
-};
-
-//CELCOMBiller
-void init_string(struct mstring *s) {
-	s->len = 0;
-	s->ptr = static_cast<char*>(malloc(s->len + 1));
-	if (s->ptr == NULL) {
-		fprintf(stderr, "malloc() failed\n");
-		exit(EXIT_FAILURE);
-	}
-	s->ptr[0] = '\0';
-}
-
-//CELCOMBiller
-//callback function to check if the user has credit
-size_t writefunc(void *ptr, size_t size, size_t nmemb, struct mstring *s) {
-	size_t new_len = s->len + size * nmemb;
-	s->ptr = static_cast<char*>(realloc(s->ptr, new_len + 1));
-	if (s->ptr == NULL) {
-		// fprintf(stderr, "realloc() failed\n");
-		exit(EXIT_FAILURE);
-	}
-	memcpy(s->ptr + s->len, ptr, size * nmemb);
-	s->ptr[new_len] = '\0';
-	s->len = new_len;
-
-	return size * nmemb;
-}
-
 //check if the user has credit
 bool has_credit(string imsi) {
-	CURL *curl;
-	CURLcode res;
-	curl_slist *headers = NULL;
-	struct mstring s;
-	init_string(&s);
 
-	char out[100];
-	char fullurl[50];
+	std::list<std::string> headers;
 
-	strcpy(out, "{\"imsi\":");
-	strcpy(out, imsi.c_str());
-	strcpy(out, "}");
+	Json::Value params;
+	Json::FastWriter fastWriter;
 
-	strcpy(fullurl, URL.c_str());
-	strcpy(fullurl, "/check_data_balance");
+	int value;
 
-	headers = curl_slist_append(headers, "Accept: application/json");
-	headers = curl_slist_append(headers, "Content-Type: application/json");
-	headers = curl_slist_append(headers, "charsets: utf-8");
+	std::ostringstream os;
 
-	curl_global_init(CURL_GLOBAL_ALL);
-	curl = curl_easy_init();
-	if (curl) {
+	std::string fullurl = URL + "/check_data_balance";
 
-		curl_easy_setopt(curl, CURLOPT_URL, fullurl);
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, out);
-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
-		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
+	params["imsi"] = imsi;
 
-		res = curl_easy_perform(curl);
+	headers.push_back("Accept: application/json");
+	headers.push_back("Content-Type: application/json");
+	headers.push_back("charsets: utf-8");
 
-		//TODO: handle when the request fail
-		//if (res != CURLE_OK)
-		//	fprintf(stderr, "curl_easy_perform() failed: %s\n",
-		//curl_easy_strerror(res));
+	try{
+		curlpp::Cleanup cleanup;
+		curlpp::Easy request;
+		curlpp::options::WriteStream ws(&os);
 
-		curl_easy_cleanup(curl);
+		request.setOpt(new curlpp::options::PostFields(fastWriter.write(params)));
+		request.setOpt(new curlpp::options::HttpHeader(headers));
+		request.setOpt(new curlpp::options::Url(fullurl));
+		request.setOpt(ws);
+		request.perform();
+
+	}catch(...){
+		//TODO: what do we have to do when we have a error?
+		return 0;
 	}
-	curl_global_cleanup();
-	MGINFO("%d",s.ptr );
-	if (atof(s.ptr) > 0)
+	std::istringstream( os.str()) >> value;
+	MGINFO("%d",value );
+	if (value > 0)
 		return true;
 	else
 		return false;
@@ -150,30 +116,29 @@ bool has_credit(string imsi) {
 
 //CELCOMBiller
 //function to send information to celcombiller
-int to_celcom_biller(unsigned char *packet, int len) {
+//direction: 1 = upload, 0 = download
+int to_celcom_biller(unsigned char *packet, int len, int direction ) {
 
-//inicializa variaveis para o request
-	CURL *curl;
-	struct curl_slist *headers = NULL;
-	CURLcode res;
-	char output[100];
+	std::list<std::string> headers;
 
-	char fullurl[50];
+	Json::Value params;
+	Json::FastWriter fastWriter;
 
-	std::string bits = SSTR(len);
-
-//format the packet
+	//format the packet
 	struct iphdr *iph = (struct iphdr*) packet;
 
 	GmmInfo *gmm;
 	std::string imsi;
-//ScopedLock lock(sSgsnListMutex);
+
+	char nbuf1[40], nbuf2[40];
+
+	std::string fullurl = URL + "/api/data_balance";
+	//ScopedLock lock(sSgsnListMutex);
 	if (sGmmInfoList.empty()) { //check if the list in empty
 		return 1;
 	}
-//char buf[30];
 
-//find the imsi
+	//find the imsi
 	int pdpcnt = 0;
 	MGINFO("saddr:",iph->saddr );
 	MGINFO("daddr:", iph->daddr );
@@ -181,13 +146,11 @@ int to_celcom_biller(unsigned char *packet, int len) {
 		for (unsigned nsapi = 0; nsapi < GmmInfo::sNumPdps; nsapi++) {
 			if (gmm->isNSapiActive(nsapi)) {
 				PdpContext *pdp = gmm->getPdp(nsapi);
-				mg_con_t *mgp; // Temp variable reduces probability of race; the mgp itself is immortal.
+				mg_con_t *mgp;
 				if (pdp && (mgp=pdp->mgp)) {
-					//if (pdpcnt) {
-					//}
 					if ( (mgp->mg_ip == iph->saddr) || (mgp->mg_ip == iph->daddr) ) {
 						imsi = gmm->mImsi.hexstr();
-						//if the user does not have credit delet his gmm
+						//if the user does not have credit delete his gmm
 						// is it a better thing to do ?
 						MGINFO("IMSI: %s",imsi.c_str()  );
 						if(!has_credit(imsi)){
@@ -201,45 +164,50 @@ int to_celcom_biller(unsigned char *packet, int len) {
 		}
 	}
 
-//formata o request
-	strcpy(output, "{\"signal\":\"-\", \"type_\":\"decrease\",\"balance\": \"data\", \"value\": \"");
-	strcat(output, bits.c_str());
-	strcat(output, "\", \"userId\":");
-	strcat(output, imsi.c_str());
-	strcat(output, "}");
-	MGINFO("request: %s",output  );
-	//set the request url
-	strcpy(fullurl, URL.c_str());
-	strcpy(fullurl, "/api/balance");
+	//create json
+	params["user_id"]=imsi;
+	params["value"]=len;
+	params["origin"]="data use";
 
-	headers = curl_slist_append(headers, "Accept: application/json");
-	headers = curl_slist_append(headers, "Content-Type: application/json");
-	headers = curl_slist_append(headers, "charsets: utf-8");
-//send request
-	curl_global_init(CURL_GLOBAL_ALL);
-	curl = curl_easy_init();
-	if (curl) {
-		curl_easy_setopt(curl, CURLOPT_URL, fullurl); ///TODO: por endereco em melhor lugar
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, output);
-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-		res = curl_easy_perform(curl);
-
-		//TODO: handle when the request fail
-		//if(res != CURLE_OK)
-		//fprintf(stderr, "curl_easy_perform() failed: %s\n",
-
-		curl_easy_strerror(res);
-
-		curl_easy_cleanup(curl);
-
+	if (direction){
+		params["user_ip"]=ip_ntoa(iph->saddr,nbuf1);
+		params["connection_ip"]=ip_ntoa(iph->daddr,nbuf2);
 	}
-	curl_global_cleanup();
+	else{
+		params["user_ip"]=ip_ntoa(iph->daddr,nbuf2);
+		params["connection_ip"]=ip_ntoa(iph->saddr,nbuf1);
+	}
+
+	MGINFO("request json: %s", fastWriter.write(params).c_str());
+
+	headers.push_back("Accept: application/json");
+	headers.push_back("Content-Type: application/json");
+	headers.push_back("charsets: utf-8");
+
+	try
+	{
+		// That's all that is needed to do cleanup of used resources (RAII style).
+		curlpp::Cleanup cleanup;
+
+		// Our request to be sent.
+		curlpp::Easy request;
+
+		request.setOpt(new curlpp::options::PostFields(fastWriter.write(params)));
+
+		request.setOpt(new curlpp::options::HttpHeader(headers));
+
+		// Set the URL.
+		request.setOpt(new curlpp::options::Url("http://127.0.0.1:5000/api/voice_balance"));
+
+		// Send request and get a result.
+		// By default the result goes to standard output.
+		request.perform();
+	}
+	catch(...){
+		//TODO: what do we have to do when we have a error?
+	}
 	return 0;
 }
-
-
-
 
 static void dumpGmmInfo();
 #if RN_UMTS
