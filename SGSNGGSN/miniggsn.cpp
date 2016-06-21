@@ -328,9 +328,12 @@ unsigned char *miniggsn_rcv_npdu(int *plen, uint32_t *dstaddr)
 		{
 			char infobuf[200];
 			MGINFO("ggsn: received %s at %s",packettoa(infobuf,recvbuf,ret), timestr().c_str());
+
 			//CELCOMBiller
+			
+			
 			MGINFO("to celcombiller");
-			to_celcom_biller(recvbuf,ret,0);
+			to_celcom_biller(recvbuf,ret);
 		//MGLOGF("ggsn: received proto=%s %d byte npdu from %s for %s at %s",
 				//ip_proto_name(iph->protocol), ret,
 				//ip_ntoa(iph->saddr,nbuf),
@@ -431,9 +434,6 @@ int miniggsn_snd_npdu_by_mgc(mg_con_t *mgp,unsigned char *npdu, unsigned len)
 
 	char infobuf[200];
 	MGINFO("ggsn: writing %s at %s",packettoa(infobuf,npdu,len),timestr().c_str());
-	//CELCOMBiller
-	MGINFO("to celcombiller");
-	to_celcom_biller(npdu,len,1);
 	//MGLOGF("ggsn: writing proto=%s %d byte npdu to %s from %s at %s",
 		//ip_proto_name(ipheader->protocol),
 		//len,ip_ntoa(packet_dest_ip_addr,NULL),
