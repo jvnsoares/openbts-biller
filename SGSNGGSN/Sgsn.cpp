@@ -37,6 +37,9 @@ using namespace Utils;
 
 //to_celcom_biller includes
 //CELCOMBiller
+#ifndef __CURL_CURL_H
+#include <curl/curl.h>
+#endif
 #ifndef SSTREAM
 #include <sstream>
 #endif
@@ -50,6 +53,8 @@ using namespace Utils;
 #include <curlpp/cURLpp.hpp>
 #include <curlpp/Easy.hpp>
 #include <curlpp/Options.hpp>
+
+#include "json/json.h"
 
 const string URL = "http://127.0.0.1:5000";
 

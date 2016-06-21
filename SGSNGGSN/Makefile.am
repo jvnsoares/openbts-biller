@@ -34,8 +34,7 @@ libSGSNGGSN_la_SOURCES = \
 	iputils.cpp \
 	miniggsn.cpp \
 	LLC.cpp \
-	SgsnCli.cpp \
-    jsoncpp.cpp
+	SgsnCli.cpp
 
 noinst_HEADERS = \
 	Ggsn.h \
